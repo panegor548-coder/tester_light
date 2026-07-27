@@ -21,14 +21,13 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
+        pip install customtkinter>=5.2.0 pyserial>=3.5 pyinstaller
 
     - name: Build EXE with PyInstaller
-      shell: bash
       run: |
-        CUSTOMTKINTER_PATH=$(python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))")
-        pyinstaller --noconfirm --onedir --windowed --add-data "${CUSTOMTKINTER_PATH};customtkinter/" app.py
+        python -c "import customtkinter, os; print(os.path.dirname(customtkinter.__file__))" > ctk_path.txt
+        set /p CTK_PATH=<ctk_path.txt
+        pyinstaller --noconfirm --onedir --windowed --add-data "%CTK_PATH%;customtkinter/" app.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
