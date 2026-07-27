@@ -14,6 +14,8 @@ PRESETS_FILE = "presets.json"
 
 DEFAULT_PRESETS = {
     "По умолчанию": {
+        "val_diff": 255, "val_beam": 255, "val_back": 255,
+        "val_s1": 90, "val_s2": 90,
         "del_diff": 0, "dur_diff": 10,
         "del_beam": 10, "dur_beam": 10,
         "del_back": 20, "dur_back": 10,
@@ -27,7 +29,7 @@ class StandApp(ctk.CTk):
         super().__init__()
 
         self.title("FPV Stand Controller")
-        self.geometry("1000x920")
+        self.geometry("1060x940")
 
         self.ser = None
 
@@ -36,15 +38,20 @@ class StandApp(ctk.CTk):
         self.is_paused = False
         self.elapsed_total = 0.0
 
-        # --- База пресетов ---
+        # --- Состояния постоянного включения (Manual Toggles) ---
+        self.toggle_states = {
+            "diffuse": False,
+            "beam": False,
+            "backlight": False,
+            "s1": False,
+            "s2": False
+        }
+
         self.presets = self.load_presets_from_file()
 
         self.setup_ui()
         self.refresh_com_ports()
 
-    # ==========================================
-    # РАБОТА С ПРЕСЕТАМИ (JSON)
-    # ==========================================
     def load_presets_from_file(self):
         if os.path.exists(PRESETS_FILE):
             try:
@@ -61,16 +68,11 @@ class StandApp(ctk.CTk):
         except Exception as e:
             print(f"Ошибка сохранения пресетов: {e}")
 
-    # ==========================================
-    # ИНТЕРФЕЙС (UI)
-    # ==========================================
     def setup_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
-        # ------------------------------------------
-        # ЛЕВАЯ ПАНЕЛЬ: Связь и Ручное Управление
-        # ------------------------------------------
+        # ЛЕВАЯ ПАНЕЛЬ
         left_frame = ctk.CTkFrame(self)
         left_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
@@ -88,26 +90,30 @@ class StandApp(ctk.CTk):
         self.btn_connect = ctk.CTkButton(com_box, text="Подключить", command=self.toggle_connection)
         self.btn_connect.pack(side="left", padx=5)
 
-        ctk.CTkLabel(left_frame, text="🎛️ Ручное Управление (Свет / Сервы)", font=("Arial", 16, "bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(left_frame, text="💡 Настройка Света и Углов (настройки для теста)", font=("Arial", 15, "bold")).pack(pady=(15, 5))
 
-        # Ползунки DMX Света
-        self.slider_diffuse = self.create_manual_slider(left_frame, "Рассеянный свет (Diff)", 0, 255)
-        self.slider_beam = self.create_manual_slider(left_frame, "Направленный луч (Beam)", 0, 255)
-        self.slider_back = self.create_manual_slider(left_frame, "Контровой свет (Back)", 0, 255)
+        self.slider_diffuse, self.lbl_diffuse, self.btn_tog_diff = self.create_hardware_control(
+            left_frame, "💡 Рассеянный свет", "diffuse", 0, 255, default=255
+        )
+        self.slider_beam, self.lbl_beam, self.btn_tog_beam = self.create_hardware_control(
+            left_frame, "🔦 Направленный луч", "beam", 0, 255, default=255
+        )
+        self.slider_back, self.lbl_back, self.btn_tog_back = self.create_hardware_control(
+            left_frame, "☀️ Контровой свет", "backlight", 0, 255, default=255
+        )
+        self.slider_s1, self.lbl_s1, self.btn_tog_s1 = self.create_hardware_control(
+            left_frame, "⚙️ Сервопривод 1 (°)", "s1", 0, 180, default=90
+        )
+        self.slider_s2, self.lbl_s2, self.btn_tog_s2 = self.create_hardware_control(
+            left_frame, "⚙️ Сервопривод 2 (°)", "s2", 0, 180, default=90
+        )
 
-        # Ползунки Сервоприводов
-        self.slider_s1 = self.create_manual_slider(left_frame, "Сервопривод 1 (°)", 0, 180)
-        self.slider_s2 = self.create_manual_slider(left_frame, "Сервопривод 2 (°)", 0, 180)
-
-        # ------------------------------------------
-        # ПРАВАЯ ПАНЕЛЬ: Автоматический Сценарий
-        # ------------------------------------------
+        # ПРАВАЯ ПАНЕЛЬ
         right_frame = ctk.CTkFrame(self)
         right_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        ctk.CTkLabel(right_frame, text="⏱️ Настройка Авто-Сценария", font=("Arial", 16, "bold")).pack(pady=5)
+        ctk.CTkLabel(right_frame, text="⏱️ Временные Задержки (Авто-Сценарий)", font=("Arial", 15, "bold")).pack(pady=5)
 
-        # Блок управления пресетами
         preset_box = ctk.CTkFrame(right_frame)
         preset_box.pack(fill="x", padx=10, pady=5)
 
@@ -122,21 +128,17 @@ class StandApp(ctk.CTk):
         btn_new_preset = ctk.CTkButton(preset_box, text="➕ Новый", width=60, command=self.create_new_preset)
         btn_new_preset.pack(side="left", padx=2)
 
-        # Ползунки временных интервалов для каждого канала
         self.slider_del_diff, self.slider_dur_diff, self.lbl_del_diff, self.lbl_dur_diff = self.create_channel_time_sliders(right_frame, "💡 Рассеянный свет")
         self.slider_del_beam, self.slider_dur_beam, self.lbl_del_beam, self.lbl_dur_beam = self.create_channel_time_sliders(right_frame, "🔦 Направленный луч")
         self.slider_del_back, self.slider_dur_back, self.lbl_del_back, self.lbl_dur_back = self.create_channel_time_sliders(right_frame, "☀️ Контровой свет")
         self.slider_del_s1, self.slider_dur_s1, self.lbl_del_s1, self.lbl_dur_s1 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 1")
         self.slider_del_s2, self.slider_dur_s2, self.lbl_del_s2, self.lbl_dur_s2 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 2")
 
-        # Загружаем настройки выбранного пресета по умолчанию
         self.apply_preset_values(self.preset_combo.get())
 
-        # Статус сценария
         self.lbl_status = ctk.CTkLabel(right_frame, text="Статус: Готов к запуску", font=("Arial", 14), text_color="gray")
         self.lbl_status.pack(pady=10)
 
-        # Кнопки управления сценарием
         btn_box = ctk.CTkFrame(right_frame)
         btn_box.pack(fill="x", padx=10, pady=5)
 
@@ -149,19 +151,29 @@ class StandApp(ctk.CTk):
         self.btn_stop = ctk.CTkButton(btn_box, text="⏹ Стоп", fg_color="red", hover_color="darkred", command=self.stop_scenario, state="disabled")
         self.btn_stop.pack(side="left", padx=5, expand=True, fill="x")
 
-    # --- Вспомогательные элементы UI ---
-    def create_manual_slider(self, parent, label_text, min_v, max_v):
+    def create_hardware_control(self, parent, title, key, min_v, max_v, default=0):
         frame = ctk.CTkFrame(parent)
         frame.pack(fill="x", padx=10, pady=5)
-        
-        lbl = ctk.CTkLabel(frame, text=f"{label_text}: 0")
-        lbl.pack(anchor="w", padx=5)
+
+        header_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        header_frame.pack(fill="x", padx=5, pady=(2, 0))
+
+        lbl = ctk.CTkLabel(header_frame, text=f"{title}: {default}")
+        lbl.pack(side="left", anchor="w")
+
+        btn_toggle = ctk.CTkButton(
+            header_frame, text="ВКЛ Постоянно", width=110, height=24,
+            fg_color="#3A3A3A", hover_color="#505050",
+            command=lambda: self.toggle_manual_channel(key, btn_toggle)
+        )
+        btn_toggle.pack(side="right", anchor="e")
 
         slider = ctk.CTkSlider(frame, from_=min_v, to=max_v, number_of_steps=max_v-min_v)
-        slider.set(0)
-        slider.configure(command=lambda v: [lbl.configure(text=f"{label_text}: {int(v)}"), self.send_manual_state()])
-        slider.pack(fill="x", padx=5, pady=2)
-        return slider
+        slider.set(default)
+        slider.configure(command=lambda v: [lbl.configure(text=f"{title}: {int(v)}"), self.update_manual_outputs()])
+        slider.pack(fill="x", padx=5, pady=4)
+
+        return slider, lbl, btn_toggle
 
     def create_channel_time_sliders(self, parent, title):
         frame = ctk.CTkFrame(parent)
@@ -169,14 +181,12 @@ class StandApp(ctk.CTk):
 
         ctk.CTkLabel(frame, text=title, font=("Arial", 13, "bold")).pack(anchor="w", padx=5, pady=(2, 0))
 
-        # Ползунок Задержки
         lbl_del = ctk.CTkLabel(frame, text="Задержка старта: 0 сек")
         lbl_del.pack(anchor="w", padx=10)
         s_del = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
         s_del.configure(command=lambda v: lbl_del.configure(text=f"Задержка старта: {int(v)} сек"))
         s_del.pack(fill="x", padx=10, pady=1)
 
-        # Ползунок Длительности
         lbl_dur = ctk.CTkLabel(frame, text="Время работы: 10 сек")
         lbl_dur.pack(anchor="w", padx=10)
         s_dur = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
@@ -185,11 +195,57 @@ class StandApp(ctk.CTk):
 
         return s_del, s_dur, lbl_del, lbl_dur
 
-    # --- Логика Управления Пресетами ---
+    def toggle_manual_channel(self, key, btn):
+        if self.is_running:
+            return
+
+        self.toggle_states[key] = not self.toggle_states[key]
+
+        if self.toggle_states[key]:
+            btn.configure(text="ВКЛЮЧЕНО", fg_color="green", hover_color="darkgreen")
+        else:
+            btn.configure(text="ВКЛ Постоянно", fg_color="#3A3A3A", hover_color="#505050")
+
+        self.update_manual_outputs()
+
+    def update_manual_outputs(self):
+        if self.is_running:
+            return
+
+        diff = self.slider_diffuse.get() if self.toggle_states["diffuse"] else 0
+        beam = self.slider_beam.get() if self.toggle_states["beam"] else 0
+        back = self.slider_back.get() if self.toggle_states["backlight"] else 0
+        s1 = self.slider_s1.get() if self.toggle_states["s1"] else 0
+        s2 = self.slider_s2.get() if self.toggle_states["s2"] else 0
+
+        self.send_to_esp(diff, beam, back, s1, s2)
+
+    def reset_all_toggles(self):
+        for key in self.toggle_states:
+            self.toggle_states[key] = False
+
+        for btn in [self.btn_tog_diff, self.btn_tog_beam, self.btn_tog_back, self.btn_tog_s1, self.btn_tog_s2]:
+            btn.configure(text="ВКЛ Постоянно", fg_color="#3A3A3A", hover_color="#505050")
+
     def apply_preset_values(self, preset_name):
         if preset_name not in self.presets:
             return
         data = self.presets[preset_name]
+
+        self.slider_diffuse.set(data.get("val_diff", 255))
+        self.lbl_diffuse.configure(text=f"💡 Рассеянный свет: {int(data.get('val_diff', 255))}")
+
+        self.slider_beam.set(data.get("val_beam", 255))
+        self.lbl_beam.configure(text=f"🔦 Направленный луч: {int(data.get('val_beam', 255))}")
+
+        self.slider_back.set(data.get("val_back", 255))
+        self.lbl_back.configure(text=f"☀️ Контровой свет: {int(data.get('val_back', 255))}")
+
+        self.slider_s1.set(data.get("val_s1", 90))
+        self.lbl_s1.configure(text=f"⚙️ Сервопривод 1 (°): {int(data.get('val_s1', 90))}")
+
+        self.slider_s2.set(data.get("val_s2", 90))
+        self.lbl_s2.configure(text=f"⚙️ Сервопривод 2 (°): {int(data.get('val_s2', 90))}")
 
         self.slider_del_diff.set(data.get("del_diff", 0))
         self.lbl_del_diff.configure(text=f"Задержка старта: {int(data.get('del_diff', 0))} сек")
@@ -216,12 +272,19 @@ class StandApp(ctk.CTk):
         self.slider_dur_s2.set(data.get("dur_s2", 10))
         self.lbl_dur_s2.configure(text=f"Время работы: {int(data.get('dur_s2', 10))} сек")
 
+        self.update_manual_outputs()
+
     def on_preset_select(self, preset_name):
         self.apply_preset_values(preset_name)
 
     def save_current_preset(self):
         preset_name = self.preset_combo.get()
         self.presets[preset_name] = {
+            "val_diff": int(self.slider_diffuse.get()),
+            "val_beam": int(self.slider_beam.get()),
+            "val_back": int(self.slider_back.get()),
+            "val_s1": int(self.slider_s1.get()),
+            "val_s2": int(self.slider_s2.get()),
             "del_diff": int(self.slider_del_diff.get()), "dur_diff": int(self.slider_dur_diff.get()),
             "del_beam": int(self.slider_del_beam.get()), "dur_beam": int(self.slider_dur_beam.get()),
             "del_back": int(self.slider_del_back.get()), "dur_back": int(self.slider_dur_back.get()),
@@ -236,8 +299,12 @@ class StandApp(ctk.CTk):
         new_name = dialog.get_input()
         if new_name and new_name.strip():
             new_name = new_name.strip()
-            # Копируем текущие настройки с экрана в новый пресет
             self.presets[new_name] = {
+                "val_diff": int(self.slider_diffuse.get()),
+                "val_beam": int(self.slider_beam.get()),
+                "val_back": int(self.slider_back.get()),
+                "val_s1": int(self.slider_s1.get()),
+                "val_s2": int(self.slider_s2.get()),
                 "del_diff": int(self.slider_del_diff.get()), "dur_diff": int(self.slider_dur_diff.get()),
                 "del_beam": int(self.slider_del_beam.get()), "dur_beam": int(self.slider_dur_beam.get()),
                 "del_back": int(self.slider_del_back.get()), "dur_back": int(self.slider_dur_back.get()),
@@ -249,7 +316,6 @@ class StandApp(ctk.CTk):
             self.preset_combo.set(new_name)
             self.lbl_status.configure(text=f"Создан новый пресет '{new_name}'!", text_color="green")
 
-    # --- Связь по COM-порту ---
     def refresh_com_ports(self):
         ports = [port.device for port in serial.tools.list_ports.comports()]
         if ports:
@@ -286,21 +352,12 @@ class StandApp(ctk.CTk):
             raw = json.dumps(payload) + "\n"
             self.ser.write(raw.encode('utf-8'))
 
-    def send_manual_state(self):
-        if not self.is_running:
-            self.send_to_esp(
-                diffuse=self.slider_diffuse.get(),
-                beam=self.slider_beam.get(),
-                backlight=self.slider_back.get(),
-                servo1=self.slider_s1.get(),
-                servo2=self.slider_s2.get()
-            )
-
-    # --- Управление автоматическим сценарием ---
     def start_scenario(self):
         if not self.ser or not self.ser.is_open:
             self.lbl_status.configure(text="Ошибка: Сначала подключите COM-порт!", text_color="red")
             return
+
+        self.reset_all_toggles()
 
         self.is_running = True
         self.is_paused = False
@@ -319,7 +376,7 @@ class StandApp(ctk.CTk):
         self.is_paused = not self.is_paused
         if self.is_paused:
             self.btn_pause.configure(text="▶ Продолжить", fg_color="green")
-            self.lbl_status.configure(text="Статус: ПАУЗА (Ожидание)", text_color="orange")
+            self.lbl_status.configure(text="Статус: ПАУЗА", text_color="orange")
         else:
             self.btn_pause.configure(text="⏸ Пауза", fg_color="orange")
 
@@ -328,16 +385,23 @@ class StandApp(ctk.CTk):
         self.is_paused = False
         self.elapsed_total = 0.0
 
-        # Сброс железа в Ноль
+        # Гасим весь свет, сервы уводим в 0
         self.send_to_esp(0, 0, 0, 0, 0)
 
         self.btn_start.configure(state="normal")
         self.btn_pause.configure(state="disabled", text="⏸ Пауза", fg_color="orange")
         self.btn_stop.configure(state="disabled")
-        self.lbl_status.configure(text="Статус: Принудительно остановлено", text_color="red")
+        self.lbl_status.configure(text="Статус: Остановлено", text_color="red")
 
-    # --- Главный поток временной шкалы ---
     def run_scenario_thread(self):
+        # Мощности света и целевые углы
+        val_diff = int(self.slider_diffuse.get())
+        val_beam = int(self.slider_beam.get())
+        val_back = int(self.slider_back.get())
+        val_s1 = int(self.slider_s1.get())
+        val_s2 = int(self.slider_s2.get())
+
+        # Тайминги
         del_diff, dur_diff = int(self.slider_del_diff.get()), int(self.slider_dur_diff.get())
         del_beam, dur_beam = int(self.slider_del_beam.get()), int(self.slider_dur_beam.get())
         del_back, dur_back = int(self.slider_del_back.get()), int(self.slider_dur_back.get())
@@ -360,13 +424,16 @@ class StandApp(ctk.CTk):
                 time.sleep(0.1)
                 continue
 
-            diff_val = 255 if (del_diff <= self.elapsed_total < del_diff + dur_diff) else 0
-            beam_val = 255 if (del_beam <= self.elapsed_total < del_beam + dur_beam) else 0
-            back_val = 255 if (del_back <= self.elapsed_total < del_back + dur_back) else 0
-            s1_val = 90 if (del_s1 <= self.elapsed_total < del_s1 + dur_s1) else 0
-            s2_val = 90 if (del_s2 <= self.elapsed_total < del_s2 + dur_s2) else 0
+            # Управление светом
+            cur_diff = val_diff if (del_diff <= self.elapsed_total < del_diff + dur_diff) else 0
+            cur_beam = val_beam if (del_beam <= self.elapsed_total < del_beam + dur_beam) else 0
+            cur_back = val_back if (del_back <= self.elapsed_total < del_back + dur_back) else 0
 
-            self.send_to_esp(diff_val, beam_val, back_val, s1_val, s2_val)
+            # Управление сервами: во время интервала даём val_s1, в остальное время — исходный угол (0°)
+            cur_s1 = val_s1 if (del_s1 <= self.elapsed_total < del_s1 + dur_s1) else 0
+            cur_s2 = val_s2 if (del_s2 <= self.elapsed_total < del_s2 + dur_s2) else 0
+
+            self.send_to_esp(cur_diff, cur_beam, cur_back, cur_s1, cur_s2)
 
             rem = int(max_duration - self.elapsed_total)
             self.lbl_status.configure(
