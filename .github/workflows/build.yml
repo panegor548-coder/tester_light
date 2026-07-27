@@ -23,11 +23,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install customtkinter>=5.2.0 pyserial>=3.5 pyinstaller
 
-    - name: Build EXE with PyInstaller
+    - name: Build EXE with PyInstaller via Python
       run: |
-        python -c "import customtkinter, os; print(os.path.dirname(customtkinter.__file__))" > ctk_path.txt
-        set /p CTK_PATH=<ctk_path.txt
-        pyinstaller --noconfirm --onedir --windowed --add-data "%CTK_PATH%;customtkinter/" app.py
+        python -c "import customtkinter, os, PyInstaller.__main__; ctk_dir = os.path.dirname(customtkinter.__file__); PyInstaller.__main__.run(['app.py', '--noconfirm', '--onedir', '--windowed', f'--add-data={ctk_dir};customtkinter/'])"
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
