@@ -14,15 +14,14 @@ class StandApp(ctk.CTk):
         super().__init__()
 
         self.title("FPV Stand Controller")
-        self.geometry("900x700")
+        self.geometry("980x880")
 
         self.ser = None
 
         # --- Состояние сценария ---
         self.is_running = False
         self.is_paused = False
-        self.current_step = 0
-        self.elapsed_in_step = 0.0
+        self.elapsed_total = 0.0
 
         self.setup_ui()
         self.refresh_com_ports()
@@ -51,16 +50,16 @@ class StandApp(ctk.CTk):
         self.btn_connect = ctk.CTkButton(com_box, text="Подключить", command=self.toggle_connection)
         self.btn_connect.pack(side="left", padx=5)
 
-        ctk.CTkLabel(left_frame, text="🎛️ Ручное Управление Свет / Сервы", font=("Arial", 16, "bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(left_frame, text="🎛️ Ручное Управление (Свет / Сервы)", font=("Arial", 16, "bold")).pack(pady=(15, 5))
 
         # Ползунки DMX Света
-        self.slider_diffuse = self.create_slider(left_frame, "Рассеянный свет (Diff)", 0, 255)
-        self.slider_beam = self.create_slider(left_frame, "Направленный луч (Beam)", 0, 255)
-        self.slider_back = self.create_slider(left_frame, "Контровой свет (Back)", 0, 255)
+        self.slider_diffuse = self.create_manual_slider(left_frame, "Рассеянный свет (Diff)", 0, 255)
+        self.slider_beam = self.create_manual_slider(left_frame, "Направленный луч (Beam)", 0, 255)
+        self.slider_back = self.create_manual_slider(left_frame, "Контровой свет (Back)", 0, 255)
 
         # Ползунки Сервоприводов
-        self.slider_s1 = self.create_slider(left_frame, "Сервопривод 1 (°)", 0, 180)
-        self.slider_s2 = self.create_slider(left_frame, "Сервопривод 2 (°)", 0, 180)
+        self.slider_s1 = self.create_manual_slider(left_frame, "Сервопривод 1 (°)", 0, 180)
+        self.slider_s2 = self.create_manual_slider(left_frame, "Сервопривод 2 (°)", 0, 180)
 
         # ==========================================
         # ПРАВАЯ ПАНЕЛЬ: Автоматический Сценарий
@@ -68,25 +67,22 @@ class StandApp(ctk.CTk):
         right_frame = ctk.CTkFrame(self)
         right_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        ctk.CTkLabel(right_frame, text="⏱️ Настройка Авто-Сценария", font=("Arial", 16, "bold")).pack(pady=5)
+        ctk.CTkLabel(right_frame, text="⏱️ Настройка Авто-Сценария (0..300 сек)", font=("Arial", 16, "bold")).pack(pady=5)
 
-        # Шаг 1
-        self.time_diffuse = self.create_time_input(right_frame, "Время Рассеянного света (сек):", default=10)
-        # Шаг 2
-        self.time_beam = self.create_time_input(right_frame, "Время Направленного луча (сек):", default=10)
-        # Шаг 3
-        self.time_back = self.create_time_input(right_frame, "Время Контрового света (сек):", default=10)
-
-        # Задержка сервоприводов
-        self.time_servo_delay = self.create_time_input(right_frame, "Задержка старта Сервоприводов (сек):", default=2, min_val=0, max_val=180)
+        # Ползунки временных интервалов для каждого канала
+        self.slider_del_diff, self.slider_dur_diff = self.create_channel_time_sliders(right_frame, "💡 Рассеянный свет", def_del=0, def_dur=10)
+        self.slider_del_beam, self.slider_dur_beam = self.create_channel_time_sliders(right_frame, "🔦 Направленный луч", def_del=10, def_dur=10)
+        self.slider_del_back, self.slider_dur_back = self.create_channel_time_sliders(right_frame, "☀️ Контровой свет", def_del=20, def_dur=10)
+        self.slider_del_s1, self.slider_dur_s1 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 1", def_del=2, def_dur=15)
+        self.slider_del_s2, self.slider_dur_s2 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 2", def_del=5, def_dur=15)
 
         # Статус сценария
         self.lbl_status = ctk.CTkLabel(right_frame, text="Статус: Готов к запуску", font=("Arial", 14), text_color="gray")
-        self.lbl_status.pack(pady=15)
+        self.lbl_status.pack(pady=10)
 
         # Кнопки управления сценарием
         btn_box = ctk.CTkFrame(right_frame)
-        btn_box.pack(fill="x", padx=10, pady=10)
+        btn_box.pack(fill="x", padx=10, pady=5)
 
         self.btn_start = ctk.CTkButton(btn_box, text="▶ Старт", fg_color="green", hover_color="darkgreen", command=self.start_scenario)
         self.btn_start.pack(side="left", padx=5, expand=True, fill="x")
@@ -98,7 +94,7 @@ class StandApp(ctk.CTk):
         self.btn_stop.pack(side="left", padx=5, expand=True, fill="x")
 
     # --- Вспомогательные конструкторы UI ---
-    def create_slider(self, parent, label_text, min_v, max_v):
+    def create_manual_slider(self, parent, label_text, min_v, max_v):
         frame = ctk.CTkFrame(parent)
         frame.pack(fill="x", padx=10, pady=5)
         
@@ -111,17 +107,29 @@ class StandApp(ctk.CTk):
         slider.pack(fill="x", padx=5, pady=2)
         return slider
 
-    def create_time_input(self, parent, label_text, default=10, min_val=10, max_val=180):
+    def create_channel_time_sliders(self, parent, title, def_del=0, def_dur=10):
         frame = ctk.CTkFrame(parent)
-        frame.pack(fill="x", padx=10, pady=5)
+        frame.pack(fill="x", padx=10, pady=4)
 
-        lbl = ctk.CTkLabel(frame, text=label_text)
-        lbl.pack(side="left", padx=5)
+        ctk.CTkLabel(frame, text=title, font=("Arial", 13, "bold")).pack(anchor="w", padx=5, pady=(2, 0))
 
-        entry = ctk.CTkEntry(frame, width=60)
-        entry.insert(0, str(default))
-        entry.pack(side="right", padx=5)
-        return entry
+        # Ползунок Задержки
+        lbl_del = ctk.CTkLabel(frame, text=f"Задержка старта: {def_del} сек")
+        lbl_del.pack(anchor="w", padx=10)
+        s_del = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
+        s_del.set(def_del)
+        s_del.configure(command=lambda v: lbl_del.configure(text=f"Задержка старта: {int(v)} сек"))
+        s_del.pack(fill="x", padx=10, pady=1)
+
+        # Ползунок Длительности
+        lbl_dur = ctk.CTkLabel(frame, text=f"Время работы: {def_dur} сек")
+        lbl_dur.pack(anchor="w", padx=10)
+        s_dur = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
+        s_dur.set(def_dur)
+        s_dur.configure(command=lambda v: lbl_dur.configure(text=f"Время работы: {int(v)} сек"))
+        s_dur.pack(fill="x", padx=10, pady=1)
+
+        return s_del, s_dur
 
     # --- Связь по COM-порту ---
     def refresh_com_ports(self):
@@ -142,7 +150,7 @@ class StandApp(ctk.CTk):
             port = self.port_combo.get()
             try:
                 self.ser = serial.Serial(port, 115200, timeout=0.1)
-                time.sleep(2)  # Пауза на авторестарт ESP32
+                time.sleep(2)
                 self.btn_connect.configure(text="Отключить", fg_color="green")
                 self.lbl_status.configure(text=f"Подключено к {port}", text_color="green")
             except Exception as e:
@@ -178,8 +186,7 @@ class StandApp(ctk.CTk):
 
         self.is_running = True
         self.is_paused = False
-        self.current_step = 1
-        self.elapsed_in_step = 0.0
+        self.elapsed_total = 0.0
 
         self.btn_start.configure(state="disabled")
         self.btn_pause.configure(state="normal", text="⏸ Пауза", fg_color="orange")
@@ -201,8 +208,7 @@ class StandApp(ctk.CTk):
     def stop_scenario(self):
         self.is_running = False
         self.is_paused = False
-        self.current_step = 0
-        self.elapsed_in_step = 0.0
+        self.elapsed_total = 0.0
 
         # Сброс железа в Ноль
         self.send_to_esp(0, 0, 0, 0, 0)
@@ -212,58 +218,51 @@ class StandApp(ctk.CTk):
         self.btn_stop.configure(state="disabled")
         self.lbl_status.configure(text="Статус: Принудительно остановлено", text_color="red")
 
-    # --- Главный поток цикла сценария ---
+    # --- Главный поток временной шкалы ---
     def run_scenario_thread(self):
-        try:
-            t_diff = max(10, min(180, int(self.time_diffuse.get())))
-            t_beam = max(10, min(180, int(self.time_beam.get())))
-            t_back = max(10, min(180, int(self.time_back.get())))
-            t_servo_delay = max(0, min(180, int(self.time_servo_delay.get())))
-        except ValueError:
-            self.lbl_status.configure(text="Ошибка: Некорректное время!", text_color="red")
-            self.stop_scenario()
-            return
+        # Считываем значения напрямую с ползунков (все значения от 0 до 300)
+        del_diff, dur_diff = int(self.slider_del_diff.get()), int(self.slider_dur_diff.get())
+        del_beam, dur_beam = int(self.slider_del_beam.get()), int(self.slider_dur_beam.get())
+        del_back, dur_back = int(self.slider_del_back.get()), int(self.slider_dur_back.get())
+        del_s1, dur_s1 = int(self.slider_del_s1.get()), int(self.slider_dur_s1.get())
+        del_s2, dur_s2 = int(self.slider_del_s2.get()), int(self.slider_dur_s2.get())
 
-        steps = [
-            {"name": "Рассеянный свет", "diff": 255, "beam": 0, "back": 0, "duration": t_diff},
-            {"name": "Направленный луч", "diff": 0, "beam": 255, "back": 0, "duration": t_beam},
-            {"name": "Контровой свет", "diff": 0, "beam": 0, "back": 255, "duration": t_back},
-        ]
+        # Вычисляем время завершения всего цикла
+        max_duration = max(
+            del_diff + dur_diff,
+            del_beam + dur_beam,
+            del_back + dur_back,
+            del_s1 + dur_s1,
+            del_s2 + dur_s2
+        )
 
-        for step_idx in range(self.current_step - 1, len(steps)):
+        while self.elapsed_total <= max_duration:
             if not self.is_running:
-                break
+                return
 
-            self.current_step = step_idx + 1
-            step = steps[step_idx]
-
-            while self.elapsed_in_step < step["duration"]:
-                if not self.is_running:
-                    return
-
-                if self.is_paused:
-                    time.sleep(0.1)
-                    continue
-
-                # Расчет работы Сервоприводов с задержкой
-                s1_val = 90 if self.elapsed_in_step >= t_servo_delay else 0
-                s2_val = 90 if self.elapsed_in_step >= t_servo_delay else 0
-
-                # Отправка на ESP32
-                self.send_to_esp(step["diff"], step["beam"], step["back"], s1_val, s2_val)
-
-                # Обновление текста статуса
-                rem_time = int(step["duration"] - self.elapsed_in_step)
-                self.lbl_status.configure(
-                    text=f"Шаг {self.current_step}/3: {step['name']} | Осталось: {rem_time}с",
-                    text_color="yellow"
-                )
-
+            if self.is_paused:
                 time.sleep(0.1)
-                self.elapsed_in_step += 0.1
+                continue
 
-            # Сброс таймера шага при переходе к следующему
-            self.elapsed_in_step = 0.0
+            # Проверка попали ли мы во временное окно каждого элемента
+            diff_val = 255 if (del_diff <= self.elapsed_total < del_diff + dur_diff) else 0
+            beam_val = 255 if (del_beam <= self.elapsed_total < del_beam + dur_beam) else 0
+            back_val = 255 if (del_back <= self.elapsed_total < del_back + dur_back) else 0
+            s1_val = 90 if (del_s1 <= self.elapsed_total < del_s1 + dur_s1) else 0
+            s2_val = 90 if (del_s2 <= self.elapsed_total < del_s2 + dur_s2) else 0
+
+            # Отправка текущих состояний
+            self.send_to_esp(diff_val, beam_val, back_val, s1_val, s2_val)
+
+            # Обновление индикатора
+            rem = int(max_duration - self.elapsed_total)
+            self.lbl_status.configure(
+                text=f"Тест идет: {int(self.elapsed_total)}с / {max_duration}с (Осталось {rem}с)",
+                text_color="yellow"
+            )
+
+            time.sleep(0.1)
+            self.elapsed_total += 0.1
 
         if self.is_running:
             self.send_to_esp(0, 0, 0, 0, 0)
