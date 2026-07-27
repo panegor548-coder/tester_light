@@ -5,16 +5,29 @@ import serial.tools.list_ports
 import json
 import threading
 import time
+import os
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
+
+PRESETS_FILE = "presets.json"
+
+DEFAULT_PRESETS = {
+    "По умолчанию": {
+        "del_diff": 0, "dur_diff": 10,
+        "del_beam": 10, "dur_beam": 10,
+        "del_back": 20, "dur_back": 10,
+        "del_s1": 2, "dur_s1": 15,
+        "del_s2": 5, "dur_s2": 15
+    }
+}
 
 class StandApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
         self.title("FPV Stand Controller")
-        self.geometry("980x880")
+        self.geometry("1000x920")
 
         self.ser = None
 
@@ -23,16 +36,41 @@ class StandApp(ctk.CTk):
         self.is_paused = False
         self.elapsed_total = 0.0
 
+        # --- База пресетов ---
+        self.presets = self.load_presets_from_file()
+
         self.setup_ui()
         self.refresh_com_ports()
 
+    # ==========================================
+    # РАБОТА С ПРЕСЕТАМИ (JSON)
+    # ==========================================
+    def load_presets_from_file(self):
+        if os.path.exists(PRESETS_FILE):
+            try:
+                with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Ошибка чтения пресетов: {e}")
+        return DEFAULT_PRESETS.copy()
+
+    def save_presets_to_file(self):
+        try:
+            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.presets, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Ошибка сохранения пресетов: {e}")
+
+    # ==========================================
+    # ИНТЕРФЕЙС (UI)
+    # ==========================================
     def setup_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
-        # ==========================================
+        # ------------------------------------------
         # ЛЕВАЯ ПАНЕЛЬ: Связь и Ручное Управление
-        # ==========================================
+        # ------------------------------------------
         left_frame = ctk.CTkFrame(self)
         left_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
@@ -61,20 +99,38 @@ class StandApp(ctk.CTk):
         self.slider_s1 = self.create_manual_slider(left_frame, "Сервопривод 1 (°)", 0, 180)
         self.slider_s2 = self.create_manual_slider(left_frame, "Сервопривод 2 (°)", 0, 180)
 
-        # ==========================================
+        # ------------------------------------------
         # ПРАВАЯ ПАНЕЛЬ: Автоматический Сценарий
-        # ==========================================
+        # ------------------------------------------
         right_frame = ctk.CTkFrame(self)
         right_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        ctk.CTkLabel(right_frame, text="⏱️ Настройка Авто-Сценария (0..300 сек)", font=("Arial", 16, "bold")).pack(pady=5)
+        ctk.CTkLabel(right_frame, text="⏱️ Настройка Авто-Сценария", font=("Arial", 16, "bold")).pack(pady=5)
+
+        # Блок управления пресетами
+        preset_box = ctk.CTkFrame(right_frame)
+        preset_box.pack(fill="x", padx=10, pady=5)
+
+        ctk.CTkLabel(preset_box, text="Пресет:").pack(side="left", padx=5)
+
+        self.preset_combo = ctk.CTkOptionMenu(preset_box, values=list(self.presets.keys()), command=self.on_preset_select)
+        self.preset_combo.pack(side="left", padx=5, expand=True, fill="x")
+
+        btn_save_preset = ctk.CTkButton(preset_box, text="💾 Сохранить", width=80, command=self.save_current_preset)
+        btn_save_preset.pack(side="left", padx=2)
+
+        btn_new_preset = ctk.CTkButton(preset_box, text="➕ Новый", width=60, command=self.create_new_preset)
+        btn_new_preset.pack(side="left", padx=2)
 
         # Ползунки временных интервалов для каждого канала
-        self.slider_del_diff, self.slider_dur_diff = self.create_channel_time_sliders(right_frame, "💡 Рассеянный свет", def_del=0, def_dur=10)
-        self.slider_del_beam, self.slider_dur_beam = self.create_channel_time_sliders(right_frame, "🔦 Направленный луч", def_del=10, def_dur=10)
-        self.slider_del_back, self.slider_dur_back = self.create_channel_time_sliders(right_frame, "☀️ Контровой свет", def_del=20, def_dur=10)
-        self.slider_del_s1, self.slider_dur_s1 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 1", def_del=2, def_dur=15)
-        self.slider_del_s2, self.slider_dur_s2 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 2", def_del=5, def_dur=15)
+        self.slider_del_diff, self.slider_dur_diff, self.lbl_del_diff, self.lbl_dur_diff = self.create_channel_time_sliders(right_frame, "💡 Рассеянный свет")
+        self.slider_del_beam, self.slider_dur_beam, self.lbl_del_beam, self.lbl_dur_beam = self.create_channel_time_sliders(right_frame, "🔦 Направленный луч")
+        self.slider_del_back, self.slider_dur_back, self.lbl_del_back, self.lbl_dur_back = self.create_channel_time_sliders(right_frame, "☀️ Контровой свет")
+        self.slider_del_s1, self.slider_dur_s1, self.lbl_del_s1, self.lbl_dur_s1 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 1")
+        self.slider_del_s2, self.slider_dur_s2, self.lbl_del_s2, self.lbl_dur_s2 = self.create_channel_time_sliders(right_frame, "⚙️ Сервопривод 2")
+
+        # Загружаем настройки выбранного пресета по умолчанию
+        self.apply_preset_values(self.preset_combo.get())
 
         # Статус сценария
         self.lbl_status = ctk.CTkLabel(right_frame, text="Статус: Готов к запуску", font=("Arial", 14), text_color="gray")
@@ -93,7 +149,7 @@ class StandApp(ctk.CTk):
         self.btn_stop = ctk.CTkButton(btn_box, text="⏹ Стоп", fg_color="red", hover_color="darkred", command=self.stop_scenario, state="disabled")
         self.btn_stop.pack(side="left", padx=5, expand=True, fill="x")
 
-    # --- Вспомогательные конструкторы UI ---
+    # --- Вспомогательные элементы UI ---
     def create_manual_slider(self, parent, label_text, min_v, max_v):
         frame = ctk.CTkFrame(parent)
         frame.pack(fill="x", padx=10, pady=5)
@@ -107,29 +163,91 @@ class StandApp(ctk.CTk):
         slider.pack(fill="x", padx=5, pady=2)
         return slider
 
-    def create_channel_time_sliders(self, parent, title, def_del=0, def_dur=10):
+    def create_channel_time_sliders(self, parent, title):
         frame = ctk.CTkFrame(parent)
         frame.pack(fill="x", padx=10, pady=4)
 
         ctk.CTkLabel(frame, text=title, font=("Arial", 13, "bold")).pack(anchor="w", padx=5, pady=(2, 0))
 
         # Ползунок Задержки
-        lbl_del = ctk.CTkLabel(frame, text=f"Задержка старта: {def_del} сек")
+        lbl_del = ctk.CTkLabel(frame, text="Задержка старта: 0 сек")
         lbl_del.pack(anchor="w", padx=10)
         s_del = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
-        s_del.set(def_del)
         s_del.configure(command=lambda v: lbl_del.configure(text=f"Задержка старта: {int(v)} сек"))
         s_del.pack(fill="x", padx=10, pady=1)
 
         # Ползунок Длительности
-        lbl_dur = ctk.CTkLabel(frame, text=f"Время работы: {def_dur} сек")
+        lbl_dur = ctk.CTkLabel(frame, text="Время работы: 10 сек")
         lbl_dur.pack(anchor="w", padx=10)
         s_dur = ctk.CTkSlider(frame, from_=0, to=300, number_of_steps=300)
-        s_dur.set(def_dur)
         s_dur.configure(command=lambda v: lbl_dur.configure(text=f"Время работы: {int(v)} сек"))
         s_dur.pack(fill="x", padx=10, pady=1)
 
-        return s_del, s_dur
+        return s_del, s_dur, lbl_del, lbl_dur
+
+    # --- Логика Управления Пресетами ---
+    def apply_preset_values(self, preset_name):
+        if preset_name not in self.presets:
+            return
+        data = self.presets[preset_name]
+
+        self.slider_del_diff.set(data.get("del_diff", 0))
+        self.lbl_del_diff.configure(text=f"Задержка старта: {int(data.get('del_diff', 0))} сек")
+        self.slider_dur_diff.set(data.get("dur_diff", 10))
+        self.lbl_dur_diff.configure(text=f"Время работы: {int(data.get('dur_diff', 10))} сек")
+
+        self.slider_del_beam.set(data.get("del_beam", 0))
+        self.lbl_del_beam.configure(text=f"Задержка старта: {int(data.get('del_beam', 0))} сек")
+        self.slider_dur_beam.set(data.get("dur_beam", 10))
+        self.lbl_dur_beam.configure(text=f"Время работы: {int(data.get('dur_beam', 10))} сек")
+
+        self.slider_del_back.set(data.get("del_back", 0))
+        self.lbl_del_back.configure(text=f"Задержка старта: {int(data.get('del_back', 0))} сек")
+        self.slider_dur_back.set(data.get("dur_back", 10))
+        self.lbl_dur_back.configure(text=f"Время работы: {int(data.get('dur_back', 10))} сек")
+
+        self.slider_del_s1.set(data.get("del_s1", 0))
+        self.lbl_del_s1.configure(text=f"Задержка старта: {int(data.get('del_s1', 0))} сек")
+        self.slider_dur_s1.set(data.get("dur_s1", 10))
+        self.lbl_dur_s1.configure(text=f"Время работы: {int(data.get('dur_s1', 10))} сек")
+
+        self.slider_del_s2.set(data.get("del_s2", 0))
+        self.lbl_del_s2.configure(text=f"Задержка старта: {int(data.get('del_s2', 0))} сек")
+        self.slider_dur_s2.set(data.get("dur_s2", 10))
+        self.lbl_dur_s2.configure(text=f"Время работы: {int(data.get('dur_s2', 10))} сек")
+
+    def on_preset_select(self, preset_name):
+        self.apply_preset_values(preset_name)
+
+    def save_current_preset(self):
+        preset_name = self.preset_combo.get()
+        self.presets[preset_name] = {
+            "del_diff": int(self.slider_del_diff.get()), "dur_diff": int(self.slider_dur_diff.get()),
+            "del_beam": int(self.slider_del_beam.get()), "dur_beam": int(self.slider_dur_beam.get()),
+            "del_back": int(self.slider_del_back.get()), "dur_back": int(self.slider_dur_back.get()),
+            "del_s1": int(self.slider_del_s1.get()), "dur_s1": int(self.slider_dur_s1.get()),
+            "del_s2": int(self.slider_del_s2.get()), "dur_s2": int(self.slider_dur_s2.get()),
+        }
+        self.save_presets_to_file()
+        self.lbl_status.configure(text=f"Пресет '{preset_name}' сохранён!", text_color="green")
+
+    def create_new_preset(self):
+        dialog = ctk.CTkInputDialog(text="Введите название нового пресета:", title="Новый пресет")
+        new_name = dialog.get_input()
+        if new_name and new_name.strip():
+            new_name = new_name.strip()
+            # Копируем текущие настройки с экрана в новый пресет
+            self.presets[new_name] = {
+                "del_diff": int(self.slider_del_diff.get()), "dur_diff": int(self.slider_dur_diff.get()),
+                "del_beam": int(self.slider_del_beam.get()), "dur_beam": int(self.slider_dur_beam.get()),
+                "del_back": int(self.slider_del_back.get()), "dur_back": int(self.slider_dur_back.get()),
+                "del_s1": int(self.slider_del_s1.get()), "dur_s1": int(self.slider_dur_s1.get()),
+                "del_s2": int(self.slider_del_s2.get()), "dur_s2": int(self.slider_dur_s2.get()),
+            }
+            self.save_presets_to_file()
+            self.preset_combo.configure(values=list(self.presets.keys()))
+            self.preset_combo.set(new_name)
+            self.lbl_status.configure(text=f"Создан новый пресет '{new_name}'!", text_color="green")
 
     # --- Связь по COM-порту ---
     def refresh_com_ports(self):
@@ -220,14 +338,12 @@ class StandApp(ctk.CTk):
 
     # --- Главный поток временной шкалы ---
     def run_scenario_thread(self):
-        # Считываем значения напрямую с ползунков (все значения от 0 до 300)
         del_diff, dur_diff = int(self.slider_del_diff.get()), int(self.slider_dur_diff.get())
         del_beam, dur_beam = int(self.slider_del_beam.get()), int(self.slider_dur_beam.get())
         del_back, dur_back = int(self.slider_del_back.get()), int(self.slider_dur_back.get())
         del_s1, dur_s1 = int(self.slider_del_s1.get()), int(self.slider_dur_s1.get())
         del_s2, dur_s2 = int(self.slider_del_s2.get()), int(self.slider_dur_s2.get())
 
-        # Вычисляем время завершения всего цикла
         max_duration = max(
             del_diff + dur_diff,
             del_beam + dur_beam,
@@ -244,17 +360,14 @@ class StandApp(ctk.CTk):
                 time.sleep(0.1)
                 continue
 
-            # Проверка попали ли мы во временное окно каждого элемента
             diff_val = 255 if (del_diff <= self.elapsed_total < del_diff + dur_diff) else 0
             beam_val = 255 if (del_beam <= self.elapsed_total < del_beam + dur_beam) else 0
             back_val = 255 if (del_back <= self.elapsed_total < del_back + dur_back) else 0
             s1_val = 90 if (del_s1 <= self.elapsed_total < del_s1 + dur_s1) else 0
             s2_val = 90 if (del_s2 <= self.elapsed_total < del_s2 + dur_s2) else 0
 
-            # Отправка текущих состояний
             self.send_to_esp(diff_val, beam_val, back_val, s1_val, s2_val)
 
-            # Обновление индикатора
             rem = int(max_duration - self.elapsed_total)
             self.lbl_status.configure(
                 text=f"Тест идет: {int(self.elapsed_total)}с / {max_duration}с (Осталось {rem}с)",
