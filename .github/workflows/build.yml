@@ -25,8 +25,10 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE with PyInstaller
+      shell: bash
       run: |
-        pyinstaller --noconfirm --onedir --windowed --add-data "C:/hostedtoolcache/windows/Python/3.11.9/x64/Lib/site-packages/customtkinter;customtkinter/" app.py
+        CUSTOMTKINTER_PATH=$(python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))")
+        pyinstaller --noconfirm --onedir --windowed --add-data "${CUSTOMTKINTER_PATH};customtkinter/" app.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
